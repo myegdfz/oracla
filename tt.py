@@ -2,50 +2,31 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torchvision.models import vgg16
+from torchvision import transforms
 from tqdm import tqdm, trange
 
 from config import get_config
 from data_loader import OneData
 from utils import train_transform, val_transform, accuracy
 
+def transforms_tt(img_size):
+    return transforms.Compose([
+        transforms.Grayscale(3),
+        transforms.Resize([img_size, img_size]),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomVerticalFlip(p=0.5),
+        transforms.RandomRotation(degrees=(-135, 135)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
 
-class dcnn(nn.Module):
-    def __init__(self, keep_prob=0.5 ,num_classes=241)->None:
-        super(dcnn, self).__init__()
-
-        self.features = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Flatten()
-        )
-        self.fc1 = nn.Sequential(nn.Linear(512*4*4, 1024),  nn.ReLU(), nn.Dropout(.5))
-        self.fc2 = nn.Sequential(nn.Linear(1024, num_classes))
-    def forward(self, x):
-        x = self.features(x)
-        # print(x.shape)
-        fc1 = self.fc1(x)
-        x = self.fc2(fc1)
-        return x, fc1
+def transforms_tv(img_size):
+    return transforms.Compose([
+        transforms.Resize([img_size, img_size]),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
 
 class Trainer(object):
 
@@ -70,7 +51,13 @@ class Trainer(object):
         else:
             self.device = torch.device('cpu')
 
-        self.model = dcnn()
+        encoder = vgg16(pretrained=True)
+        base_model = encoder.features
+        self.model = base_model
+        print(base_model)
+        dim =  list(base_model.parameters())[-1].shape[0]
+        self.model.classifier = torch.nn.Sequential(nn.Flatten(), torch.nn.Linear(dim*7*7, 4096), torch.nn.ReLU(), torch.nn.Dropout(p=0.5), torch.nn.Linear(4096, 4096),
+                                                        torch.nn.Dropout(p=0.5), torch.nn.Linear(4096, self.config.num_classes))
         self.smloss = torch.nn.CrossEntropyLoss()
 
     def train(self):
@@ -78,21 +65,22 @@ class Trainer(object):
         model = self.model.to(device)
         ceLoss = self.smloss.to(device)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        train_data = OneData(config=self.config, data_dir=self.train_dir, transform=train_transform(self.config))
-        valid_data = OneData(config=self.config, data_dir=self.valid_dir, transform=val_transform(self.config))
+        train_data = OneData(config=self.config, data_dir=self.train_dir, transform=transforms_tt(224))
+        valid_data = OneData(config=self.config, data_dir=self.valid_dir, transform=transforms_tv(224))
         train_loader = DataLoader(dataset=train_data, batch_size=self.batch_size, shuffle=True, num_workers=self.config.num_workers)
         valid_loader = DataLoader(dataset=valid_data, batch_size=self.batch_size, num_workers=self.config.num_workers)
         # print()
-        with open('{}/gt.txt'.format(self.model_dir), 'w') as f:
+        with open('{}/vgg16_gt.txt'.format(self.model_dir), 'w') as f:
             for step in trange(self.epoch):
                 model.train()
                 correct = 0
                 for idx, (inputs, labels) in enumerate(train_loader):
                     # inputs = torch.cat(inputs, 0)
                     # labels = torch.cat(labels, 0)
-                    output, fc1 = model(inputs)
+                    print(inputs.shape)
+                    output = model(inputs)
                     # print(output)
                     loss = ceLoss(output, labels)
                     optimizer.zero_grad()
@@ -128,12 +116,7 @@ class Trainer(object):
 
 
 if __name__ == '__main__':
-    net = dcnn()
-    x = torch.rand((2, 1, 64, 64))
 
-    # print(net)
-    # print(net(x).shape)
-    print(net(x)[0].shape, net(x)[1].shape)
     config, unparsed = get_config()
     train = Trainer(config)
     train.train()
