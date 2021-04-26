@@ -7,12 +7,11 @@ from torchvision import transforms
 from tqdm import tqdm, trange
 
 from config import get_config
-from data_loader import OneData
+from data_loader import OneData, TwoData
 from utils import train_transform, val_transform, accuracy
 
 def transforms_tt(img_size):
     return transforms.Compose([
-        transforms.Grayscale(3),
         transforms.Resize([img_size, img_size]),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.5),
@@ -51,13 +50,15 @@ class Trainer(object):
         else:
             self.device = torch.device('cpu')
 
-        encoder = vgg16(pretrained=True)
-        base_model = encoder.features
-        self.model = base_model
-        print(base_model)
-        dim =  list(base_model.parameters())[-1].shape[0]
-        self.model.classifier = torch.nn.Sequential(nn.Flatten(), torch.nn.Linear(dim*7*7, 4096), torch.nn.ReLU(), torch.nn.Dropout(p=0.5), torch.nn.Linear(4096, 4096),
-                                                        torch.nn.Dropout(p=0.5), torch.nn.Linear(4096, self.config.num_classes))
+        self.model = vgg16(pretrained=False)
+        # print(base_model)
+        # dim =  list(base_model.parameters())[-1].shape[0]
+        num_ftrs = self.model.classifier[6].in_features
+        self.model.classifier[6] = torch.nn.Sequential(
+            nn.Linear(num_ftrs, self.config.num_classes),
+            nn.Softmax()
+        )
+
         self.smloss = torch.nn.CrossEntropyLoss()
 
     def train(self):
@@ -67,10 +68,10 @@ class Trainer(object):
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        train_data = OneData(config=self.config, data_dir=self.train_dir, transform=transforms_tt(224))
-        valid_data = OneData(config=self.config, data_dir=self.valid_dir, transform=transforms_tv(224))
+        train_data = TwoData(config=self.config, data_dir=self.train_dir, transform=transforms_tt(224))
+        valid_data = TwoData(config=self.config, data_dir=self.valid_dir, transform=transforms_tv(224))
         train_loader = DataLoader(dataset=train_data, batch_size=self.batch_size, shuffle=True, num_workers=self.config.num_workers)
-        valid_loader = DataLoader(dataset=valid_data, batch_size=self.batch_size, num_workers=self.config.num_workers)
+        valid_loader = DataLoader(dataset=valid_data, batch_size=self.batch_size, shuffle=True, num_workers=self.config.num_workers)
         # print()
         with open('{}/vgg16_gt.txt'.format(self.model_dir), 'w') as f:
             for step in trange(self.epoch):
@@ -79,7 +80,9 @@ class Trainer(object):
                 for idx, (inputs, labels) in enumerate(train_loader):
                     # inputs = torch.cat(inputs, 0)
                     # labels = torch.cat(labels, 0)
-                    print(inputs.shape)
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+                    # print(inputs.shape)
                     output = model(inputs)
                     # print(output)
                     loss = ceLoss(output, labels)
@@ -87,12 +90,12 @@ class Trainer(object):
                     loss.backward()
                     optimizer.step()
                     predicted = torch.max(output.data, 1)[1]
-                    # correct += (predicted == labels).sum()
+                    correct += (predicted == labels).sum()
                     # print(correct)
-                    print('Epoch :{}[{}/{}({:.0f}%)]\t Loss:{:.6f}'.format(step, idx * len(inputs), len(train_loader),
-                                                                                             100. * idx / len( train_loader), loss.data.item()))
-                    # print('Epoch :{}[{}/{}({:.0f}%)]\t Loss:{:.6f}\t Accuracy:{:.6f}'.format(step, idx * len(inputs), len(train_loader.dataset),
-                    #                                                                              100. * idx / len(train_loader), loss.data.item(), correct / len(train_loader.dataset)))
+                    # print('Epoch :{}[{}/{}({:.0f}%)]\t Loss:{:.6f}'.format(step, idx * len(inputs), len(train_loader),
+                    #                                                                          100. * idx / len( train_loader), loss.data.item()))
+                    print('Epoch :{}[{}/{}({:.0f}%)]\t Loss:{:.6f}\t Accuracy:{:.6f}'.format(step, idx * len(inputs), len(train_loader.dataset),
+                                                                                                 100. * (idx / len(train_loader.dataset)), loss.data.item(), correct*1.0 / len(train_loader.dataset)))
 
 
                 # print('epoch :{}/{}, loss :{:.6f}'.format(step, self.epoch, loss))
@@ -103,7 +106,7 @@ class Trainer(object):
                     for input, target in valid_loader:
                         input = input.to(device)
                         target = target.to(device)
-                        output, fc1 = model(input)
+                        output = model(input)
                         # output = model.classifier(output)
 
                         (prec1, batch1), (prec3, batch3) = accuracy(output.data, target.data, topk=(1, 3))
@@ -112,7 +115,6 @@ class Trainer(object):
                         _batch1 += batch1
                         _batch3 += batch3
                     print(' * Prec@1 {prec1}/{batch1} Prec@3 {prec3}/{batch3}'.format(prec1=_prec1, batch1=_batch1, prec3=_prec3, batch3=_batch3))
-
 
 
 if __name__ == '__main__':

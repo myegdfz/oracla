@@ -5,3 +5,6 @@
     + `dfcn`
     + `dcnn` modify
     + **why does the accuracy always be zero?** (do not know the reason)
++ work 3: file modify 
+    + added pretrained `vgg16-fc6`, is it a same result? 
+        + Unfortunately, it is same result. fuck.

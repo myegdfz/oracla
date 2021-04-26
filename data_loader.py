@@ -40,7 +40,7 @@ class OneData(Dataset):
                 for i in range(len(image_names)):
                     image_name = image_names[i]
                     image_path = os.path.join(roots, dir, image_name)
-                    self.data_map.append((image_path, self.dir2label[dir]))
+                    self.data_map.append((image_path, image_name))
 
 class TwoData(Dataset):
 
@@ -51,8 +51,30 @@ class TwoData(Dataset):
         self.get_img(self.data_dir)
         self.transform = transform
 
+    def __len__(self):
+        return len(self.data_map)
+
+    def __getitem__(self, idx):
+        image_path, label = self.data_map[idx]
+        img = Image.open(image_path).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, label
+
     def load_dir(self, data_path):
-        pass
+        dir2label = os.path.join(data_path, 'subdir_to_label.json')
+        with open(dir2label, 'r') as f:
+            self.dir2label = json.load(f)
+
+    def get_img(self, data_dir):
+        self.data_map = list()
+        for roots, dirs, files in os.walk(data_dir):
+            for dir in dirs:
+                image_names = os.listdir(os.fspath(roots + "/" + dir))
+                for i in range(len(image_names)):
+                    image_name = image_names[i]
+                    image_path = os.path.join(roots, dir, image_name)
+                    self.data_map.append((image_path, self.dir2label[dir]))
 
 
 if __name__ == '__main__':

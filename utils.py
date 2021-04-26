@@ -1,3 +1,4 @@
+import os
 
 from torchvision import transforms
 
@@ -30,6 +31,15 @@ def train_transform(config):
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
 
+def single_transform():
+    return transforms.Compose([
+        transforms.Resize([64, 64]),
+        # transforms.RandomHorizontalFlip(p=0.5),
+        # transforms.RandomVerticalFlip(p=0.5),
+        # transforms.RandomRotation(degrees=(-135, 135)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
 
 def val_transform(config):
     return transforms.Compose([
@@ -37,3 +47,14 @@ def val_transform(config):
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[.5]),
     ])
+
+
+def get_imgs(root_dir):
+    datas = list()
+    for roots, dirs, files in os.walk(root_dir):
+        for dir in dirs:
+            images_name = os.listdir(os.path.join(roots, dir))
+            for i in range(len(images_name)):
+                image_name = images_name[i]
+                datas.append(os.path.join(roots, dir, image_name))
+    return datas
